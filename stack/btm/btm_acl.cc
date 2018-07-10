@@ -1273,8 +1273,10 @@ tBTM_STATUS BTM_SetLinkSuperTout(const RawAddress& remote_bda,
 
     /* Only send if current role is Master; 2.0 spec requires this */
     if (p->link_role == BTM_ROLE_MASTER) {
+#if (SUPERVISION_TIMEOUT == TRUE)
       btsnd_hcic_write_link_super_tout(LOCAL_BR_EDR_CONTROLLER_ID,
                                        p->hci_handle, timeout);
+#endif
       return (BTM_CMD_STARTED);
     } else {
       return (BTM_SUCCESS);

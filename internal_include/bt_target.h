@@ -1386,4 +1386,13 @@ single PDU.
 
 #include "bt_trace.h"
 
+/******************************************************************************
+ *
+ * Odroid custom options here.
+ *
+ *****************************************************************************/
+#ifndef SUPERVISION_TIMEOUT
+#define SUPERVISION_TIMEOUT TRUE
+#endif
+
 #endif /* BT_TARGET_H */
