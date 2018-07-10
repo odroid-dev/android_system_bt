@@ -1395,4 +1395,8 @@ single PDU.
 #define SUPERVISION_TIMEOUT TRUE
 #endif
 
+#ifndef BLE_ADV_FILTER
+#define BLE_ADV_FILTER TRUE
+#endif
+
 #endif /* BT_TARGET_H */
