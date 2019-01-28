@@ -1384,6 +1384,17 @@ single PDU.
 #define BTSNOOP_MEM TRUE
 #endif
 
+/******************************************************************************
+ *
+ * Patch: auto patch macro
+ *
+ *****************************************************************************/
+/* wifi/bt coexistence.bug:SWPL-3628 */
+#ifndef MASTER_LATENCY
+#define MASTER_LATENCY TRUE
+#endif
+
+
 #include "bt_trace.h"
 
 /******************************************************************************
