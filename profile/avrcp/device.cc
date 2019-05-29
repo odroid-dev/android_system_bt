@@ -126,9 +126,9 @@ void Device::VendorPacketHandler(uint8_t label,
       // this currently since the current implementation only has one
       // player and the player will never change, but we need it for a
       // more complete implementation.
-      auto response = RejectBuilder::MakeBuilder(
-          CommandPdu::SET_ADDRESSED_PLAYER, Status::INVALID_PLAYER_ID);
-      send_message(label, false, std::move(response));
+      media_interface_->GetMediaPlayerList(base::Bind(
+          &Device::HandleSetAddressedPlayer, weak_ptr_factory_.GetWeakPtr(),
+          label, Packet::Specialize<SetAddressedPlayerRequest>(pkt)));
     } break;
 
     default: {
@@ -182,25 +182,30 @@ void Device::HandleGetCapabilities(
 
 void Device::HandleNotification(
     uint8_t label, const std::shared_ptr<RegisterNotificationRequest>& pkt) {
+  if (!pkt->IsValid()) {
+    DEVICE_LOG(ERROR) << __func__ << ": Request packet is not valid";
+    auto response = RejectBuilder::MakeBuilder(pkt->GetCommandPdu(),
+                                               Status::INVALID_PARAMETER);
+    send_message(label, false, std::move(response));
+    return;
+  }
+
   DEVICE_VLOG(4) << __func__ << ": event=" << pkt->GetEventRegistered();
 
   switch (pkt->GetEventRegistered()) {
     case Event::TRACK_CHANGED: {
-      track_changed_ = Notification(true, label);
       media_interface_->GetNowPlayingList(
           base::Bind(&Device::TrackChangedNotificationResponse,
                      weak_ptr_factory_.GetWeakPtr(), label, true));
     } break;
 
     case Event::PLAYBACK_STATUS_CHANGED: {
-      play_status_changed_ = Notification(true, label);
       media_interface_->GetPlayStatus(
           base::Bind(&Device::PlaybackStatusNotificationResponse,
                      weak_ptr_factory_.GetWeakPtr(), label, true));
     } break;
 
     case Event::PLAYBACK_POS_CHANGED: {
-      play_pos_changed_ = Notification(true, label);
       play_pos_interval_ = pkt->GetInterval();
       media_interface_->GetPlayStatus(
           base::Bind(&Device::PlaybackPosNotificationResponse,
@@ -208,13 +213,15 @@ void Device::HandleNotification(
     } break;
 
     case Event::NOW_PLAYING_CONTENT_CHANGED: {
-      now_playing_changed_ = Notification(true, label);
-      media_interface_->GetNowPlayingList(base::Bind(
-          &Device::HandleNowPlayingNotificationResponse,
-          weak_ptr_factory_.GetWeakPtr(), now_playing_changed_.second, true));
+      media_interface_->GetNowPlayingList(
+          base::Bind(&Device::HandleNowPlayingNotificationResponse,
+                     weak_ptr_factory_.GetWeakPtr(), label, true));
     } break;
 
     case Event::AVAILABLE_PLAYERS_CHANGED: {
+      // TODO (apanicke): If we make a separate handler function for this, make
+      // sure to register the notification in the interim response.
+
       // Respond immediately since this notification doesn't require any info
       avail_players_changed_ = Notification(true, label);
       auto response =
@@ -224,13 +231,15 @@ void Device::HandleNotification(
     } break;
 
     case Event::ADDRESSED_PLAYER_CHANGED: {
-      addr_player_changed_ = Notification(true, label);
       media_interface_->GetMediaPlayerList(
           base::Bind(&Device::AddressedPlayerNotificationResponse,
                      weak_ptr_factory_.GetWeakPtr(), label, true));
     } break;
 
     case Event::UIDS_CHANGED: {
+      // TODO (apanicke): If we make a separate handler function for this, make
+      // sure to register the notification in the interim response.
+
       // Respond immediately since this notification doesn't require any info
       uids_changed_ = Notification(true, label);
       auto response =
@@ -343,7 +352,9 @@ void Device::TrackChangedNotificationResponse(uint8_t label, bool interim,
   DEVICE_VLOG(1) << __func__;
   uint64_t uid = 0;
 
-  if (!track_changed_.first) {
+  if (interim) {
+    track_changed_ = Notification(true, label);
+  } else if (!track_changed_.first) {
     DEVICE_VLOG(0) << __func__ << ": Device not registered for update";
     return;
   }
@@ -383,7 +394,9 @@ void Device::PlaybackStatusNotificationResponse(uint8_t label, bool interim,
   DEVICE_VLOG(1) << __func__;
   if (status.state == PlayState::PAUSED) play_pos_update_cb_.Cancel();
 
-  if (!play_status_changed_.first) {
+  if (interim) {
+    play_status_changed_ = Notification(true, label);
+  } else if (!play_status_changed_.first) {
     DEVICE_VLOG(0) << __func__ << ": Device not registered for update";
     return;
   }
@@ -414,7 +427,9 @@ void Device::PlaybackPosNotificationResponse(uint8_t label, bool interim,
                                              PlayStatus status) {
   DEVICE_VLOG(4) << __func__;
 
-  if (!play_pos_changed_.first) {
+  if (interim) {
+    play_pos_changed_ = Notification(true, label);
+  } else if (!play_pos_changed_.first) {
     DEVICE_VLOG(3) << __func__ << ": Device not registered for update";
     return;
   }
@@ -457,6 +472,14 @@ void Device::AddressedPlayerNotificationResponse(
     std::vector<MediaPlayerInfo> /* unused */) {
   DEVICE_VLOG(1) << __func__
                  << ": curr_player_id=" << (unsigned int)curr_player;
+
+  if (interim) {
+    addr_player_changed_ = Notification(true, label);
+  } else if (!addr_player_changed_.first) {
+    DEVICE_VLOG(3) << __func__ << ": Device not registered for update";
+    return;
+  }
+
   // If there is no set browsed player, use the current addressed player as the
   // default NOTE: Using any browsing commands before the browsed player is set
   // is a violation of the AVRCP Spec but there are some carkits that try too
@@ -615,6 +638,24 @@ void Device::HandlePlayItem(uint8_t label,
                              pkt->GetScope() == Scope::NOW_PLAYING, media_id);
 
   auto response = PlayItemResponseBuilder::MakeBuilder(Status::NO_ERROR);
+  send_message(label, false, std::move(response));
+}
+
+void Device::HandleSetAddressedPlayer(
+    uint8_t label, std::shared_ptr<SetAddressedPlayerRequest> pkt,
+    uint16_t curr_player, std::vector<MediaPlayerInfo> players) {
+  DEVICE_VLOG(2) << __func__ << ": PlayerId=" << pkt->GetPlayerId();
+
+  if (curr_player != pkt->GetPlayerId()) {
+    DEVICE_VLOG(2) << "Reject invalid addressed player ID";
+    auto response = RejectBuilder::MakeBuilder(CommandPdu::SET_ADDRESSED_PLAYER,
+                                               Status::INVALID_PLAYER_ID);
+    send_message(label, false, std::move(response));
+    return;
+  }
+
+  auto response =
+      SetAddressedPlayerResponseBuilder::MakeBuilder(Status::NO_ERROR);
   send_message(label, false, std::move(response));
 }
 
@@ -1158,7 +1199,9 @@ void Device::HandleNowPlayingUpdate() {
 void Device::HandleNowPlayingNotificationResponse(
     uint8_t label, bool interim, std::string curr_song_id,
     std::vector<SongInfo> song_list) {
-  if (!now_playing_changed_.first) {
+  if (interim) {
+    now_playing_changed_ = Notification(true, label);
+  } else if (!now_playing_changed_.first) {
     LOG(WARNING) << "Device is not registered for now playing updates";
     return;
   }
