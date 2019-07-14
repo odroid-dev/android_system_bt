@@ -2020,6 +2020,8 @@ void btm_ble_conn_complete(uint8_t* p, UNUSED_ATTR uint16_t evt_len,
  *
  *****************************************************************************/
 void btm_ble_create_ll_conn_complete(uint8_t status) {
+  btsnd_hcic_ble_set_adv_enable(BTM_BLE_ADV_ENABLE);
+
   if (status == HCI_SUCCESS) return;
 
   btm_ble_set_conn_st(BLE_CONN_IDLE);

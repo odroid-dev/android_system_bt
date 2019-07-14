@@ -357,6 +357,7 @@ void btm_ble_create_conn_cancel_complete(uint8_t* p) {
       btm_ble_update_mode_operation(HCI_ROLE_UNKNOWN, nullptr, status);
     }
   }
+  btsnd_hcic_ble_set_adv_enable(BTM_BLE_ADV_ENABLE);
 }
 
 void btm_send_hci_create_connection(
@@ -365,6 +366,9 @@ void btm_send_hci_create_connection(
     uint16_t conn_int_min, uint16_t conn_int_max, uint16_t conn_latency,
     uint16_t conn_timeout, uint16_t min_ce_len, uint16_t max_ce_len,
     uint8_t initiating_phys) {
+
+  btsnd_hcic_ble_set_adv_enable(BTM_BLE_ADV_DISABLE);
+
   if (controller_get_interface()->supports_ble_extended_advertising()) {
     EXT_CONN_PHY_CFG phy_cfg[3];  // maximum three phys
 
