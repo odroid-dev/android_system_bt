@@ -1396,7 +1396,7 @@ single PDU.
  *****************************************************************************/
 /* wifi/bt coexistence.bug:SWPL-3628 */
 #ifndef MASTER_LATENCY
-#define MASTER_LATENCY TRUE
+#define MASTER_LATENCY FALSE
 #endif
 
 
